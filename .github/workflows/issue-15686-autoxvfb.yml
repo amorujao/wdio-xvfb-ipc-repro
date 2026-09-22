@@ -9,6 +9,7 @@
 #   esm-plain      control, known good
 #   cjs-shared     CommonJS, and an object mutated by a second file before export
 #   esm-service    a launcher service that mutates config in onPrepare
+#   esm-bs-service a real third-party service, @wdio/browserstack-service
 #
 # Runs on ubuntu-24.04 so #15685 stays out of the way: there xvfb-run still carries
 # the IPC fd, so the worker survives and the only thing on show is which path was
@@ -33,6 +34,7 @@ jobs:
           - esm-plain.conf.js
           - cjs-shared.conf.cjs
           - esm-service.conf.js
+          - esm-bs-service.conf.js
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -46,7 +48,7 @@ jobs:
       - name: Versions
         working-directory: issue-15686
         run: |
-          for p in cli local-runner xvfb config; do
+          for p in cli local-runner xvfb config browserstack-service; do
             echo "@wdio/$p: $(node -p "try{require('./node_modules/@wdio/$p/package.json').version}catch(e){'ABSENT'}")"
           done
 
