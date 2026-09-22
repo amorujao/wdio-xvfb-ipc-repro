@@ -10,6 +10,9 @@
 #   cjs-shared     CommonJS, and an object mutated by a second file before export
 #   esm-service    a launcher service that mutates config in onPrepare
 #   esm-bs-service a real third-party service, @wdio/browserstack-service
+#   cucumber-*     the cucumber framework, with and without a dotted
+#                  --cucumberOpts.* argument on the command line
+#   esm-cli-*      the control config, overridden from the command line
 #
 # Runs on ubuntu-24.04 so #15685 stays out of the way: there xvfb-run still carries
 # the IPC fd, so the worker survives and the only thing on show is which path was
@@ -24,17 +27,20 @@ on:
 
 jobs:
   variant:
-    name: ${{ matrix.variant }}
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        variant:
-          - esm-plain.conf.js
-          - cjs-shared.conf.cjs
-          - esm-service.conf.js
-          - esm-bs-service.conf.js
+        include:
+          - { name: esm-plain,        config: esm-plain.conf.js,     args: "" }
+          - { name: cjs-shared,       config: cjs-shared.conf.cjs,   args: "" }
+          - { name: esm-service,      config: esm-service.conf.js,   args: "" }
+          - { name: esm-bs-service,   config: esm-bs-service.conf.js, args: "" }
+          - { name: cucumber-noargs,  config: cucumber.conf.js,      args: "" }
+          - { name: cucumber-cli-tags, config: cucumber.conf.js,     args: "--cucumberOpts.tags=@smoke" }
+          - { name: esm-cli-loglevel, config: esm-plain.conf.js,     args: "--logLevel info" }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -57,7 +63,7 @@ jobs:
         run: |
           node --input-type=module -e "
             import { ConfigParser } from '@wdio/config/node'
-            const cp = new ConfigParser('./variants/${{ matrix.variant }}')
+            const cp = new ConfigParser('./variants/${{ matrix.config }}')
             await cp.initialize()
             console.log('RESOLVED autoXvfb =', JSON.stringify(cp.getConfig().autoXvfb))
           "
@@ -70,7 +76,7 @@ jobs:
           # never let it fail the step. Redirect rather than pipe, so nothing depends
           # on how the logger writes.
           set +e
-          npx wdio run ./variants/${{ matrix.variant }} > wdio.log 2>&1
+          npx wdio run ./variants/${{ matrix.config }} ${{ matrix.args }} > wdio.log 2>&1
           echo "wdio exited $? ($(wc -l < wdio.log) lines captured)"
           set -e
 
@@ -81,9 +87,9 @@ jobs:
           grep -E "ProcessFactory:|Skipping automatic Xvfb" wdio.log || echo "(none found)"
           echo
           if grep -q "shouldRun=true" wdio.log; then
-            echo "RESULT ${{ matrix.variant }}: FLAG LOST - xvfb-run wrapper chosen despite autoXvfb false"
+            echo "RESULT ${{ matrix.name }}: FLAG LOST - xvfb-run wrapper chosen despite autoXvfb false"
           elif grep -q "shouldRun=false" wdio.log; then
-            echo "RESULT ${{ matrix.variant }}: flag honoured - regular fork"
+            echo "RESULT ${{ matrix.name }}: flag honoured - regular fork"
           else
-            echo "RESULT ${{ matrix.variant }}: INCONCLUSIVE - no ProcessFactory line, worker may never have spawned"
+            echo "RESULT ${{ matrix.name }}: INCONCLUSIVE - no ProcessFactory line, worker may never have spawned"
           fi
