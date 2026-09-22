@@ -1,0 +1,83 @@
+# Reproduces webdriverio/webdriverio#15685.
+#
+# Same child, same stdio array, same node. Only the way the child is started differs:
+# a plain fork (what local-runner does without xvfb-run) against a spawn through
+# xvfb-run (what it does with it). The fork cells pass on both images; the xvfb-run
+# cell passes on 24.04 and fails on 26.04 with `write EINVAL`.
+#
+# Every cell is continue-on-error so the matrix always reports in full, and each one
+# prints its own verdict line.
+
+name: issue 15685 - xvfb-run breaks worker IPC
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  fork:
+    name: control - plain fork - ${{ matrix.os }} / node ${{ matrix.node }} / ${{ matrix.count }} worker(s)
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+        node: [22, 24]
+        count: [1, 25]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Environment
+        run: |
+          echo "image:    ${{ matrix.os }}"
+          echo "node:     $(node --version)"
+          echo "xvfb-run: $(command -v xvfb-run || echo 'NOT INSTALLED')"
+          dpkg -l | grep -E '^ii +xvfb ' || echo "no xvfb package"
+      - name: fork() + process.send()
+        id: repro
+        run: node issue-15685/parent-fork.mjs ${{ matrix.count }}
+      - name: Verdict
+        if: always()
+        run: |
+          [ "${{ steps.repro.outcome }}" = "success" ] \
+            && echo "VERDICT ${{ matrix.os }} fork: IPC OK (expected)" \
+            || echo "VERDICT ${{ matrix.os }} fork: IPC BROKEN (unexpected)"
+
+  xvfb:
+    name: the bug - through xvfb-run - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Environment
+        run: |
+          echo "image:    ${{ matrix.os }}"
+          echo "node:     $(node --version)"
+          echo "xvfb-run: $(command -v xvfb-run || echo 'NOT INSTALLED')"
+          dpkg -l | grep -E '^ii +xvfb ' || echo "no xvfb package"
+      - name: fork() + process.send() through xvfb-run
+        id: repro
+        run: |
+          if ! command -v xvfb-run >/dev/null; then
+            echo "xvfb-run absent — local-runner would fork instead, nothing to show here"
+            exit 0
+          fi
+          node issue-15685/parent-xvfb.mjs
+      - name: Verdict
+        if: always()
+        run: |
+          if [ "${{ steps.repro.outcome }}" = "success" ]; then
+            echo "VERDICT ${{ matrix.os }} xvfb-run: IPC OK"
+          else
+            echo "VERDICT ${{ matrix.os }} xvfb-run: IPC BROKEN - this is the bug"
+          fi

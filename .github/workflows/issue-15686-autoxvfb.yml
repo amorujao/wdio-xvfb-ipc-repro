@@ -1,0 +1,73 @@
+# Reproduces webdriverio/webdriverio#15686.
+#
+# The project in issue-15686/ sets `autoXvfb: false`, which per the docs disables
+# @wdio/xvfb. It does not: the run still logs, for every worker,
+#
+#   ProcessFactory: shouldRun=true, isAvailable=true
+#   Creating worker process with xvfb-run wrapper and retry logic
+#
+# and never logs "Skipping automatic Xvfb initialization (disabled by config)".
+#
+# Runs on ubuntu-24.04 on purpose. There xvfb-run still carries the IPC fd, so #15685
+# does not fire and the only thing on show is the ignored config flag. The job fails
+# if the wrapper was chosen, and passes if a future release honours the flag.
+
+name: issue 15686 - autoXvfb false is ignored
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  autoxvfb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install
+        working-directory: issue-15686
+        run: npm install --no-audit --no-fund
+
+      - name: Versions, and that the installed build reads the flag
+        working-directory: issue-15686
+        run: |
+          for p in cli local-runner xvfb config; do
+            echo "@wdio/$p: $(node -p "try{require('./node_modules/@wdio/$p/package.json').version}catch(e){'ABSENT'}")"
+          done
+          echo "--- where local-runner reads autoXvfb:"
+          grep -n "autoXvfb" node_modules/@wdio/local-runner/build/index.js || echo "NOT READ AT ALL"
+
+      - name: What the config resolves to
+        working-directory: issue-15686
+        run: |
+          node --input-type=module -e "
+            import { ConfigParser } from '@wdio/config/node'
+            const cp = new ConfigParser('./wdio.conf.js')
+            await cp.initialize()
+            console.log('resolved autoXvfb =', JSON.stringify(cp.getConfig().autoXvfb))
+          "
+
+      - name: Run wdio and keep the log
+        working-directory: issue-15686
+        run: |
+          echo "DISPLAY is '${DISPLAY:-}' (unset is what makes shouldRun() fire)"
+          # The session itself is beside the point — the worker is spawned before it,
+          # and that spawn is what this is about. Never fail here.
+          npx wdio run ./wdio.conf.js 2>&1 | tee wdio.log || true
+
+      - name: Expected vs observed
+        working-directory: issue-15686
+        run: |
+          echo "--- every ProcessFactory decision in the log:"
+          grep -E "ProcessFactory: shouldRun=|Creating worker process|Skipping automatic Xvfb" wdio.log || \
+            echo "(no ProcessFactory lines - is logLevel still info?)"
+          echo
+          if grep -q "shouldRun=true" wdio.log; then
+            echo "OBSERVED: shouldRun=true and the worker went through the xvfb-run wrapper"
+            echo "EXPECTED: shouldRun=false and a plain fork, because autoXvfb is false"
+            exit 1
+          fi
+          echo "shouldRun=false — the flag is honoured, so this issue is fixed"
