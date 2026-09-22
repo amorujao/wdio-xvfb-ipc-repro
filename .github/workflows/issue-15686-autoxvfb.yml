@@ -1,25 +1,24 @@
-# Narrows down webdriverio/webdriverio#15686.
+# Evidence for webdriverio/webdriverio#15686, which was CLOSED as not reproducible.
 #
-# A minimal ESM project honours `autoXvfb: false` — the run logs
-# `shouldRun=false` and `Creating worker process with regular fork`. A real suite
-# with the same flag and the same 9.32.0 packages logs `shouldRun=true` and takes
-# the xvfb-run wrapper instead. This matrix changes one trait at a time to find
-# which of them loses the flag:
+# The claim was that `autoXvfb: false` does not stop the worker being spawned through
+# xvfb-run. It was filed from the CI logs of a real suite, where ConfigParser resolved
+# the flag to false and the runner still logged shouldRun=true for every worker.
 #
-#   esm-plain      control, known good
-#   cjs-shared     CommonJS, and an object mutated by a second file before export
-#   esm-service    a launcher service that mutates config in onPrepare
-#   esm-bs-service a real third-party service, @wdio/browserstack-service
-#   cucumber-*     the cucumber framework, with and without a dotted
-#                  --cucumberOpts.* argument on the command line
-#   esm-cli-*      the control config, overridden from the command line
+# It does not reproduce. Every cell below honours the flag. Each varies one way a real
+# config can differ from a minimal one: module system, an object mutated by a second
+# file before export, a stub service that mutates config in onPrepare, a real
+# third-party service, the cucumber framework, a dotted --cucumberOpts.* argument, and
+# a plain --logLevel override.
 #
-# Runs on ubuntu-24.04 so #15685 stays out of the way: there xvfb-run still carries
-# the IPC fd, so the worker survives and the only thing on show is which path was
-# chosen. The session itself always fails (no display, no real device) and that is
-# fine — the decision is logged before any session is created.
+# Kept so the negative result is reproducible too, and so it flips by itself if some
+# future release ever does lose the flag.
+#
+# Runs on ubuntu-24.04 on purpose: there xvfb-run still carries the IPC fd, so #15685
+# does not fire and the only thing on show is which worker path was chosen. The
+# session itself always fails and that is beside the point — the decision is logged
+# before any session is created.
 
-name: issue 15686 - which config trait loses autoXvfb
+name: issue 15686 - autoXvfb (not reproducible)
 
 on:
   push:

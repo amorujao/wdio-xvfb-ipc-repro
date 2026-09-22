@@ -6,7 +6,7 @@ Minimal, runnable reproductions for two WebdriverIO bugs, both in how
 | issue | what it shows |
 | --- | --- |
 | [webdriverio/webdriverio#15685](https://github.com/webdriverio/webdriverio/issues/15685) | Every worker dies with `write EINVAL` on Ubuntu 26.04, because `xvfb-run` does not carry the IPC fd through its exec into `node` |
-| [webdriverio/webdriverio#15686](https://github.com/webdriverio/webdriverio/issues/15686) | `autoXvfb: false` does not stop workers being spawned through `xvfb-run` |
+| [webdriverio/webdriverio#15686](https://github.com/webdriverio/webdriverio/issues/15686) | **Closed, not reproducible.** `autoXvfb: false` was reported as ignored; it is honoured in every configuration tried here |
 
 Both reproduce on GitHub-hosted runners. Push to this repo, or run the two workflows
 from the Actions tab, and read the verdict lines.
@@ -59,40 +59,49 @@ The workflow runs both across `ubuntu-24.04` and `ubuntu-26.04`, node 22 and 24,
 In a real suite this means every worker dies before its first spec and the run
 produces no results at all.
 
-## #15686 — `autoXvfb: false` is ignored
+## #15686 — `autoXvfb: false` is ignored — NOT REPRODUCIBLE
 
-`issue-15686/` is a WebdriverIO project whose config sets `autoXvfb: false` and
-`logLevel: 'info'`.
+**This one was closed.** It was filed from CI logs of a real suite where
+`ConfigParser` resolved `autoXvfb` to `false` and the runner still logged
+`shouldRun=true` for every worker. It does not reproduce here, and the issue should
+not have been filed before it had been isolated. The project and the matrix are kept
+as evidence of what was ruled out.
 
-```bash
-cd issue-15686
-npm install
-npx wdio run ./wdio.conf.js
+`issue-15686/` is a WebdriverIO project with `autoXvfb: false` and
+`logLevel: 'info'`. Its workflow runs one cell per way a real config can differ from
+the minimal one:
+
+| cell | what it varies | result |
+| --- | --- | --- |
+| `esm-plain` | control | flag honoured, regular fork |
+| `cjs-shared` | CommonJS, object mutated by a second file before export | flag honoured |
+| `esm-service` | a launcher service mutating config in `onPrepare` | flag honoured |
+| `esm-bs-service` | a real third-party service | flag honoured |
+| `cucumber-noargs` | the cucumber framework | flag honoured |
+| `cucumber-cli-tags` | `wdio run … --cucumberOpts.tags=@smoke` | flag honoured |
+| `esm-cli-loglevel` | `wdio run … --logLevel info` | flag honoured |
+
+Every cell logs:
+
+```
+@wdio/xvfb:ProcessFactory: ProcessFactory: shouldRun=false, isAvailable=true
+@wdio/xvfb:ProcessFactory: Creating worker process with regular fork
 ```
 
-**Expected:** `shouldRun=false`, and the worker started with a plain fork.
+`@wdio/local-runner` 9.29.1 also reads the option in the same two places as 9.31.9
+and 9.32.0, so a stale install does not explain it either.
 
-**Observed:**
-
-```
-ProcessFactory: shouldRun=true, isAvailable=true
-Creating worker process with xvfb-run wrapper and retry logic
-```
-
-with `Skipping automatic Xvfb initialization (disabled by config)` never logged — so
-the flag is not reaching `XvfbManager` at all. The workflow also prints the resolved
-`ConfigParser` value (`false`, as it should be) and the line in the installed
-`@wdio/local-runner` that reads it, to show the two do not meet.
-
-It runs on `ubuntu-24.04` deliberately: there `xvfb-run` still carries the fd, so
-\#15685 stays out of the way and the ignored flag is the only thing on show.
+The cells run on `ubuntu-24.04` deliberately: there `xvfb-run` still carries the IPC
+fd, so #15685 stays out of the way and the only thing on show is which path was
+chosen. The Chrome session always fails — with xvfb genuinely disabled there is no
+display — and that is irrelevant, because the decision is logged before any session
+is created.
 
 ## Why it matters together
 
 `ubuntu-latest` moves to 26.04 between 2026-10-19 and 2026-11-19
 ([actions/runner-images#14748](https://github.com/actions/runner-images/issues/14748)).
 When it does, #15685 breaks every Linux suite whose capabilities do not name a local
-browser — Appium, cloud device farms, anything remote — and #15686 means the
-documented way out does not work. Setting a non-empty `DISPLAY` is the only
-workaround, since it makes `shouldRun()` false through the other half of the same
-check.
+browser — Appium, cloud device farms, anything remote. Two ways out: `autoXvfb: false`,
+or a non-empty `DISPLAY`, which makes `shouldRun()` false through the other half of
+the same check.
