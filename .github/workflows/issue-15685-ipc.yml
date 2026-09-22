@@ -51,16 +51,19 @@ jobs:
             || echo "VERDICT ${{ matrix.os }} fork: IPC BROKEN (unexpected)"
 
   xvfb:
-    name: ${{ matrix.name }} - ${{ matrix.os }}
+    name: ${{ matrix.script }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
       fail-fast: false
+      # Two real dimensions. An `include:` list here would be merged into the os
+      # combinations rather than multiplied with them, and the second entry would
+      # silently overwrite the first — leaving only one script tested per image.
       matrix:
         os: [ubuntu-24.04, ubuntu-26.04]
-        include:
-          - { name: the bug - through xvfb-run, script: parent-xvfb.mjs }
-          - { name: candidate fix - ipc on fd 4, script: parent-xvfb-padded.mjs }
+        script:
+          - parent-xvfb.mjs         # what local-runner does today
+          - parent-xvfb-padded.mjs  # candidate fix: ipc moved to fd 4
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
