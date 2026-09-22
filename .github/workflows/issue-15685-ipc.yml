@@ -5,6 +5,10 @@
 # xvfb-run (what it does with it). The fork cells pass on both images; the xvfb-run
 # cell passes on 24.04 and fails on 26.04 with `write EINVAL`.
 #
+# A second xvfb-run cell tries the candidate fix: xvfb-run keeps fd 3 for its own
+# logging and closes it before running the command, so padding the stdio array moves
+# node's IPC channel to fd 4, out of its way.
+#
 # Every cell is continue-on-error so the matrix always reports in full, and each one
 # prints its own verdict line.
 
@@ -47,13 +51,16 @@ jobs:
             || echo "VERDICT ${{ matrix.os }} fork: IPC BROKEN (unexpected)"
 
   xvfb:
-    name: the bug - through xvfb-run - ${{ matrix.os }}
+    name: ${{ matrix.name }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-26.04]
+        include:
+          - { name: the bug - through xvfb-run, script: parent-xvfb.mjs }
+          - { name: candidate fix - ipc on fd 4, script: parent-xvfb-padded.mjs }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -72,12 +79,12 @@ jobs:
             echo "xvfb-run absent — local-runner would fork instead, nothing to show here"
             exit 0
           fi
-          node issue-15685/parent-xvfb.mjs
+          node issue-15685/${{ matrix.script }}
       - name: Verdict
         if: always()
         run: |
           if [ "${{ steps.repro.outcome }}" = "success" ]; then
-            echo "VERDICT ${{ matrix.os }} xvfb-run: IPC OK"
+            echo "VERDICT ${{ matrix.os }} ${{ matrix.script }}: IPC OK"
           else
-            echo "VERDICT ${{ matrix.os }} xvfb-run: IPC BROKEN - this is the bug"
+            echo "VERDICT ${{ matrix.os }} ${{ matrix.script }}: IPC BROKEN"
           fi
